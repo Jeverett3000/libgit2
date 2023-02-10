@@ -19,31 +19,31 @@ class Version(object):
     def __init__(self, version):
         versions = version.split(sep='.')
         if len(versions) < 2 or len(versions) > 3:
-            raise Error("Invalid version string '{}'".format(version))
+            raise Error(f"Invalid version string '{version}'")
         self.major = int(versions[0])
         self.minor = int(versions[1])
         self.revision = int(versions[2]) if len(versions) == 3 else 0
 
     def __str__(self):
-        return '{}.{}.{}'.format(self.major, self.minor, self.revision)
+        return f'{self.major}.{self.minor}.{self.revision}'
 
     def __eq__(self, other):
         return self.major == other.major and self.minor == other.minor and self.revision == other.revision
 
 def verify_version(version):
     expected = {
-        'VERSION':      [ '"{}"'.format(version), None ],
-        'VER_MAJOR':    [ str(version.major), None ],
-        'VER_MINOR':    [ str(version.minor), None ],
-        'VER_REVISION': [ str(version.revision), None ],
-        'VER_PATCH':    [ '0', None ],
-        'SOVERSION':    [ '"{}.{}"'.format(version.major, version.minor), None ],
+        'VERSION': [f'"{version}"', None],
+        'VER_MAJOR': [str(version.major), None],
+        'VER_MINOR': [str(version.minor), None],
+        'VER_REVISION': [str(version.revision), None],
+        'VER_PATCH': ['0', None],
+        'SOVERSION': [f'"{version.major}.{version.minor}"', None],
     }
 
     # Parse CMakeLists
     with open('CMakeLists.txt') as f:
         for line in f.readlines():
-            if line.startswith('project(libgit2 VERSION "{}"'.format(version)):
+            if line.startswith(f'project(libgit2 VERSION "{version}"'):
                 break
         else:
             raise Error("cmake: invalid project definition")
@@ -52,18 +52,20 @@ def verify_version(version):
     with open('include/git2/version.h') as f:
         lines = f.readlines()
 
-    for key in expected.keys():
-        define = '#define LIBGIT2_{} '.format(key)
+    for key in expected:
+        define = f'#define LIBGIT2_{key} '
         for line in lines:
             if line.startswith(define):
                 expected[key][1] = line[len(define):].strip()
                 break
         else:
-            raise Error("version.h: missing define for '{}'".format(key))
+            raise Error(f"version.h: missing define for '{key}'")
 
     for k, v in expected.items():
         if v[0] != v[1]:
-            raise Error("version.h: define '{}' does not match (got '{}', expected '{}')".format(k, v[0], v[1]))
+            raise Error(
+                f"version.h: define '{k}' does not match (got '{v[0]}', expected '{v[1]}')"
+            )
 
     with open('package.json') as f:
         pkg = json.load(f)
@@ -71,23 +73,27 @@ def verify_version(version):
     try:
         pkg_version = Version(pkg["version"])
     except KeyError as err:
-        raise Error("package.json: missing the field {}".format(err))
+        raise Error(f"package.json: missing the field {err}")
 
     if pkg_version != version:
-        raise Error("package.json: version does not match (got '{}', expected '{}')".format(pkg_version, version))
+        raise Error(
+            f"package.json: version does not match (got '{pkg_version}', expected '{version}')"
+        )
 
 def generate_relnotes(tree, version):
     with open('docs/changelog.md') as f:
         lines = f.readlines()
 
     if not lines[0].startswith('v'):
-        raise Error("changelog.md: missing section for v{}".format(version))
+        raise Error(f"changelog.md: missing section for v{version}")
     try:
         v = Version(lines[0][1:].strip())
     except:
-        raise Error("changelog.md: invalid version string {}".format(lines[0].strip()))
+        raise Error(f"changelog.md: invalid version string {lines[0].strip()}")
     if v != version:
-        raise Error("changelog.md: changelog version doesn't match (got {}, expected {})".format(v, version))
+        raise Error(
+            f"changelog.md: changelog version doesn't match (got {v}, expected {version})"
+        )
     if not lines[1].startswith('----'):
         raise Error("changelog.md: missing version header")
     if lines[2] != '\n':
@@ -109,7 +115,9 @@ def generate_relnotes(tree, version):
 def git(*args):
     process = subprocess.run([ 'git', *args ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     if process.returncode != 0:
-        raise Error('Failed executing git {}: {}'.format(' '.join(args),  process.stderr.decode()))
+        raise Error(
+            f"Failed executing git {' '.join(args)}: {process.stderr.decode()}"
+        )
     return process.stdout
 
 def post(url, data, contenttype, user, password):
@@ -117,30 +125,42 @@ def post(url, data, contenttype, user, password):
     request.add_header('Accept', 'application/json')
     request.add_header('Content-Type', contenttype)
     request.add_header('Content-Length', len(data))
-    request.add_header('Authorization', 'Basic ' + base64.b64encode('{}:{}'.format(user, password).encode()).decode())
+    request.add_header(
+        'Authorization',
+        f"Basic {base64.b64encode(f'{user}:{password}'.encode()).decode()}",
+    )
 
     try:
         response = urllib.request.urlopen(request)
         if response.getcode() != 201:
-            raise Error("POST to '{}' failed: {}".format(url, response.reason))
+            raise Error(f"POST to '{url}' failed: {response.reason}")
     except urllib.error.URLError as e:
-        raise Error("POST to '{}' failed: {}".format(url, e))
+        raise Error(f"POST to '{url}' failed: {e}")
     data = json.load(response)
 
     return data
 
 def generate_asset(version, tree, archive_format):
     Asset = namedtuple('Asset', ['name', 'label', 'mimetype', 'data'])
-    mimetype = 'application/{}'.format('gzip' if archive_format == 'tar.gz' else 'zip')
+    mimetype = f"application/{'gzip' if archive_format == 'tar.gz' else 'zip'}"
     return Asset(
-        "libgit2-{}.{}".format(version, archive_format), "Release sources: libgit2-{}.{}".format(version, archive_format), mimetype,
-        git('archive', '--format', archive_format, '--prefix', 'libgit2-{}/'.format(version), tree)
+        f"libgit2-{version}.{archive_format}",
+        f"Release sources: libgit2-{version}.{archive_format}",
+        mimetype,
+        git(
+            'archive',
+            '--format',
+            archive_format,
+            '--prefix',
+            f'libgit2-{version}/',
+            tree,
+        ),
     )
 
 def release(args):
     params = {
-        "tag_name": 'v' + str(args.version),
-        "name": 'libgit2 v' + str(args.version),
+        "tag_name": f'v{str(args.version)}',
+        "name": f'libgit2 v{str(args.version)}',
         "target_commitish": git('rev-parse', args.tree).decode().strip(),
         "body": generate_relnotes(args.tree, args.version),
     }
@@ -151,16 +171,18 @@ def release(args):
 
     if args.dryrun:
         for k, v in params.items():
-            print('{}: {}'.format(k, v))
+            print(f'{k}: {v}')
         for asset in assets:
-            print('asset: name={}, label={}, mimetype={}, bytes={}'.format(asset.name, asset.label, asset.mimetype, len(asset.data)))
+            print(
+                f'asset: name={asset.name}, label={asset.label}, mimetype={asset.mimetype}, bytes={len(asset.data)}'
+            )
         return
 
     try:
-        url = 'https://api.github.com/repos/{}/releases'.format(args.repository)
+        url = f'https://api.github.com/repos/{args.repository}/releases'
         response = post(url, json.dumps(params).encode(), 'application/json', args.user, args.password)
     except Error as e:
-        raise Error('Could not create release: ' + str(e))
+        raise Error(f'Could not create release: {str(e)}')
 
     for asset in assets:
         try:
@@ -168,7 +190,7 @@ def release(args):
             url[4] = urllib.parse.urlencode({ 'name': asset.name, 'label': asset.label })
             post(urllib.parse.urlunparse(url), asset.data, asset.mimetype, args.user, args.password)
         except Error as e:
-            raise Error('Could not upload asset: ' + str(e))
+            raise Error(f'Could not upload asset: {str(e)}')
 
 def main():
     parser = argparse.ArgumentParser(description='Create a libgit2 release')

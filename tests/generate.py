@@ -16,13 +16,20 @@ class Module(object):
             self.module = module
 
         def _render_callback(self, cb):
-            if not cb:
-                return '    { NULL, NULL }'
-            return '    { "%s", &%s }' % (cb['short_name'], cb['symbol'])
+            return (
+                '    { "%s", &%s }' % (cb['short_name'], cb['symbol'])
+                if cb
+                else '    { NULL, NULL }'
+            )
 
     class DeclarationTemplate(Template):
         def render(self):
-            out = "\n".join("extern %s;" % cb['declaration'] for cb in self.module.callbacks) + "\n"
+            out = (
+                "\n".join(
+                    f"extern {cb['declaration']};" for cb in self.module.callbacks
+                )
+                + "\n"
+            )
 
             for initializer in self.module.initializers:
                 out += "extern %s;\n" % initializer['declaration']
@@ -51,10 +58,10 @@ class Module(object):
                 name = self.module.clean_name()
                 if initializer and initializer['short_name'].startswith('initialize_'):
                     variant = initializer['short_name'][len('initialize_'):]
-                    name += " (%s)" % variant.replace('_', ' ')
+                    name += f" ({variant.replace('_', ' ')})"
 
                 template = Template(
-            r"""
+                    r"""
     {
         "${clean_name}",
     ${initialize},
@@ -62,12 +69,12 @@ class Module(object):
         ${cb_ptr}, ${cb_count}, ${enabled}
     }"""
                 ).substitute(
-                    clean_name = name,
-                    initialize = self._render_callback(initializer),
-                    cleanup = self._render_callback(self.module.cleanup),
-                    cb_ptr = "_clar_cb_%s" % self.module.name,
-                    cb_count = len(self.module.callbacks),
-                    enabled = int(self.module.enabled)
+                    clean_name=name,
+                    initialize=self._render_callback(initializer),
+                    cleanup=self._render_callback(self.module.cleanup),
+                    cb_ptr=f"_clar_cb_{self.module.name}",
+                    cb_count=len(self.module.callbacks),
+                    enabled=int(self.module.enabled),
                 )
                 templates.append(template)
 
@@ -148,13 +155,11 @@ class TestSuite(object):
         self.output = output
 
     def maybe_generate(self, path):
-        if not os.path.isfile(path):
-            return True
-
-        if any(module.modified for module in self.modules.values()):
-            return True
-
-        return False
+        return (
+            any((module.modified for module in self.modules.values()))
+            if os.path.isfile(path)
+            else True
+        )
 
     def find_modules(self):
         modules = []
@@ -177,9 +182,8 @@ class TestSuite(object):
         cache = {}
 
         try:
-            fp = open(path, 'rb')
-            cache = pickle.load(fp)
-            fp.close()
+            with open(path, 'rb') as fp:
+                cache = pickle.load(fp)
         except (IOError, ValueError):
             pass
 
